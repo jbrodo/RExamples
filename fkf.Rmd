@@ -909,17 +909,330 @@ sequence<-c("a", "a", "b", "b", "a", "c", "b", "a", "b", "c", "a", "b", "c", "a"
 fitHigherOrder(sequence)
 ```
 
-###Twelveth Example
+###Function to obtain the transition matrix from the generator Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+energyStates <- c("sigma", "sigma_star")
+byRow <- TRUE
+gen <- matrix(data = c(-3, 3,
+1, -1), nrow = 2,
+byrow = byRow, dimnames = list(energyStates, energyStates))
+generatorToTransitionMatrix(gen)
+```
+
+###Class "HigherOrderMarkovChain" Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(holson)
+head(holson)
+```
+
+###Function to infer the hyperparameters for Bayesian inference from an a priori matrix or a data set Example
+Since the Bayesian inference approach implemented in the package is based on conjugate priors, hyperparameters must be provided to model the prior probability distribution of the chain parameters. The hyperparameters are inferred from a given a priori matrix under the assumption that the matrix provided corresponds to the mean (expected) values of the chain parameters. A scaling factor vector must be provided too. Alternatively, the hyperparameters can be inferred from a data set.
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(rain, package = "markovchain")
+inferHyperparam(data = rain$rain)
+weatherStates <- c("sunny", "cloudy", "rain")
+weatherMatrix <- matrix(data = c(0.7, 0.2, 0.1,
+0.3, 0.4, 0.3,
+0.2, 0.4, 0.4),
+byrow = TRUE, nrow = 3,
+dimnames = list(weatherStates, weatherStates))
+inferHyperparam(transMatr = weatherMatrix, scale = c(10, 10, 10))
+```
+
+###Verify if a state j is reachable from state i. Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames,
+transitionMatrix = matrix(c(0.2, 0.5, 0.3,
+0, 1, 0,
+0.1, 0.8, 0.1), nrow = 3, byrow = TRUE,
+dimnames = list(statesNames, statesNames)
+)
+)
+is.accessible(markovB, "a", "c")
+
+```
+
+###Function to check if a Markov chain is irreducible Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b")
+mcA <- new("markovchain", transitionMatrix = matrix(c(0.7,0.3,0.1,0.9),
+byrow = TRUE, nrow = 2,
+dimnames = list(statesNames, statesNames)
+))
+is.irreducible(mcA)
+```
+
+###Class "markovchain" Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+#show markovchain definition
+showClass("markovchain")
+#create a simple Markov chain
+transMatr<-matrix(c(0.4,0.6,.3,.7),nrow=2,byrow=TRUE)
+simpleMc<-new("markovchain", states=c("a","b"),
+transitionMatrix=transMatr,
+name="simpleMc")
+#power
+simpleMc^4
+#some methods
+steadyStates(simpleMc)
+absorbingStates(simpleMc)
+simpleMc[2,1]
+t(simpleMc)
+is.irreducible(simpleMc)
+#conditional distributions
+conditionalDistribution(simpleMc, "b")
+#example for predict method
+sequence<-c("a", "b", "a", "a", "a", "a", "b", "a", "b", "a", "b", "a", "a", "b", "b", "b", "a")
+mcFit<-markovchainFit(data=sequence)
+predict(mcFit$estimate, newdata="b",n.ahead=3)
+#direct conversion
+myMc<-as(transMatr, "markovchain")
+#example of summary
+summary(simpleMc)
+## Not run: plot(simpleMc)
+plot(simpleMc)
+```
+
+###Class "markovchainList" Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+showClass("markovchainList")
+#define a markovchainList
+statesNames=c("a","b")
+mcA<-new("markovchain",name="MCA", transitionMatrix=matrix(c(0.7,0.3,0.1,0.9),
+byrow=TRUE, nrow=2, dimnames=list(statesNames,statesNames)))
+mcB<-new("markovchain", states=c("a","b","c"), name="MCB",
+transitionMatrix=matrix(c(0.2,0.5,0.3,0,1,0,0.1,0.8,0.1),
+nrow=3, byrow=TRUE))
+mcC<-new("markovchain", states=c("a","b","c","d"), name="MCC",
+transitionMatrix=matrix(c(0.25,0.75,0,0,0.4,0.6,
+0,0,0,0,0.1,0.9,0,0,0.7,0.3), nrow=4, byrow=TRUE)
+)
+mcList<-new("markovchainList",markovchains=list(mcA, mcB, mcC),
+name="Non - homogeneous Markov Chain")
+```
+
+###markovchainListFit Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+# using holson dataset
+data(holson)
+# fitting a single markovchain
+singleMc <- markovchainFit(data = holson[,2:12])
+# fitting a markovchainList
+mclistFit <- markovchainListFit(data = holson[, 2:12], name = "holsonMcList")
+```
+
+###Function to generate a sequence of states from homogeneous Markov chains. Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+# define the markovchain object
+statesNames <- c("a", "b", "c")
+mcB <- new("markovchain", states = statesNames,
+transitionMatrix = matrix(c(0.2, 0.5, 0.3, 0, 0.2, 0.8, 0.1, 0.8, 0.1),
+nrow = 3, byrow = TRUE, dimnames = list(statesNames, statesNames)))
+# show the sequence
+outs <- markovchainSequence(n = 100, markovchain = mcB, t0 = "a")
+```
+
+###A function to compute multinomial confidence intervals of DTMC Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+seq<-c("a", "b", "a", "a", "a", "a", "b", "a", "b", "a", "b", "a", "a", "b", "b", "b", "a")
+mcfit<-markovchainFit(data=seq,byrow=TRUE)
+seqmat<-createSequenceMatrix(seq)
+multinomialConfidenceIntervals(mcfit$estimate@transitionMatrix, seqmat, 0.95)
+```
+
+###Method to retrieve name of markovchain object Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames=list(statesNames,statesNames)),
+name = "A markovchain Object"
+)
+name(markovB)
+
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames=list(statesNames,statesNames)),
+name = "A markovchain Object"
+)
+name(markovB) <- "dangerous mc"
+
+```
+
+###Function to compute the probability of observing a new data set, given a data set Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+sequence<-c("a", "b", "a", "a", "a", "a", "b", "a", "b", "a", "b", "a", "a",
+"b", "b", "b", "a")
+hyperMatrix<-matrix(c(1, 2, 1, 4), nrow = 2,dimnames=list(c("a","b"),c("a","b")))
+predProb <- predictiveDistribution(sequence[1:10], sequence[11:17], hyperparam =hyperMatrix )
+hyperMatrix2<-hyperMatrix[c(2,1),c(2,1)]
+predProb2 <- predictiveDistribution(sequence[1:10], sequence[11:17], hyperparam =hyperMatrix2 )
+predProb2==predProb
+```
+
+###Preprogluccacon DNA protein bases sequences Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(preproglucacon)
+preproglucaconMc<-markovchainFit(data=preproglucacon$preproglucacon)
+```
+
+###Prior Distribution Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+priorDistribution(matrix(c(0.5, 0.5, 0.5, 0.5),
+nrow = 2,
+dimnames = list(c("a", "b"), c("a", "b"))),
+matrix(c(2, 2, 2, 2),
+nrow = 2,
+dimnames = list(c("a", "b"), c("a", "b"))))
+```
+
+###Alofi island daily rainfall Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(rain)
+rainMc<-markovchainFit(data=rain$rain)
+
+```
+
+###Function to generate a sequence of random CTMC transitions Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+energyStates <- c("sigma", "sigma_star")
+byRow <- TRUE
+gen <- matrix(data = c(-3, 3,
+1, -1), nrow = 2,
+byrow = byRow, dimnames = list(energyStates, energyStates))
+molecularCTMC <- new("ctmc", states = energyStates,
+byrow = byRow, generator = gen,
+name = "Molecular Transition Model")
+statesDist <- c(0.8, 0.2)
+rctmc(n = Inf, ctmc = molecularCTMC, T = 1)
+rctmc(n = 5, ctmc = molecularCTMC, initDist = statesDist, include.T0 = FALSE)
+```
+
+###Function to generate a sequence of states from homogeneous or nonhomogeneous Markov chains Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+# define the markovchain object
+statesNames <- c("a", "b", "c")
+mcB <- new("markovchain", states = statesNames,
+transitionMatrix = matrix(c(0.2, 0.5, 0.3, 0, 0.2, 0.8, 0.1, 0.8, 0.1),
+nrow = 3, byrow = TRUE, dimnames = list(statesNames, statesNames)))
+# show the sequence
+outs <- rmarkovchain(n = 100, object = mcB, what = "list")
+#define markovchainList object
+statesName = c("a", "b", "c")
+mcA <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 0.2, 0.8, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames = list(statesNames, statesNames)))
+mcB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 0.2, 0.8, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames = list(statesNames, statesNames)))
+mcC <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 0.2, 0.8, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames = list(statesNames, statesNames)))
+mclist <- new("markovchainList", markovchains = list(mcA, mcB, mcC))
+# show the list of sequence
+rmarkovchain(100, mclist, "list")
+```
+
+###Sales Demand Sequences Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data("sales")
+#fitHighOrderMultivarMC(seqMat = sales, order = 2, Norm = 2)
+```
+
+###Defined states of a transition matrix Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames=list(statesNames,statesNames)),
+name = "A markovchain Object"
+)
+states(markovB)
+```
+
+###SStationary states of a markovchain objeect Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames=list(statesNames,statesNames)),
+name = "A markovchain Object"
+)
+steadyStates(markovB)
+
+```
+
+###Function to get the transition probabilities from initial to subsequent states Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1), nrow = 3,
+byrow = TRUE, dimnames=list(statesNames,statesNames)),
+name = "A markovchain Object"
+)
+transitionProbability(markovB,"b", "c")
+```
+
+###Various functions to perform statistical inference of DTMC Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+sequence <- c("a", "b", "a", "a", "a", "a", "b", "a", "b",
+"a", "b", "a", "a", "b", "b", "b", "a")
+mcFit <- markovchainFit(data = sequence, byrow = FALSE)
+verifyMarkovProperty(sequence)
+assessOrder(sequence)
+assessStationarity(sequence, 1)
+divergenceTest(sequence, mcFit$estimate@transitionMatrix)
+```
+
+###Sales Demand Sequences Example
 
 ```{r}
 library("markovchain", lib.loc="~/R/win-library/3.2")
 
 ```
-
-###Twelveth Example
-
-```{r}
-library("markovchain", lib.loc="~/R/win-library/3.2")
-
-```
-
