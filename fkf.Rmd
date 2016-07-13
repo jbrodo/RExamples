@@ -1,0 +1,925 @@
+---
+title: "Kalman, Time series and Markov Chain"
+author: "RR"
+date: "12 luglio 2016"
+output: html_document
+---
+
+
+##Kalman
+For more details on Kalman Filter see <https://cran.r-project.org/web/packages/FKF/FKF.pdf>.
+
+###First Example
+
+```{r}
+library("FKF",lib.loc="~/R/win-library/3.2")
+## <--------------------------------------------------------------------------->
+## Example 1: ARMA(2, 1) model estimation.
+## <--------------------------------------------------------------------------->
+## This example shows how to fit an ARMA(2, 1) model using this Kalman
+## filter implementation (see also stats' makeARIMA and KalmanRun).
+n <- 1000
+## Set the AR parameters
+ar1 <- 0.6
+ar2 <- 0.2
+ma1 <- -0.2
+sigma <- sqrt(0.2)
+## Sample from an ARMA(2, 1) process
+a <- arima.sim(model = list(ar = c(ar1, ar2), ma = ma1), n = n,
+innov = rnorm(n) * sigma)
+## Create a state space representation out of the four ARMA parameters
+arma21ss <- function(ar1, ar2, ma1, sigma) {
+Tt <- matrix(c(ar1, ar2, 1, 0), ncol = 2)
+Zt <- matrix(c(1, 0), ncol = 2)
+ct <- matrix(0)
+dt <- matrix(0, nrow = 2)
+GGt <- matrix(0)
+H <- matrix(c(1, ma1), nrow = 2) * sigma
+HHt <- H %*% t(H)
+a0 <- c(0, 0)
+P0 <- matrix(1e6, nrow = 2, ncol = 2)
+return(list(a0 = a0, P0 = P0, ct = ct, dt = dt, Zt = Zt, Tt = Tt, GGt = GGt, HHt = HHt))
+}
+## The objective function passed to 'optim'
+objective <- function(theta, yt) {
+sp <- arma21ss(theta["ar1"], theta["ar2"], theta["ma1"], theta["sigma"])
+ans <- fkf(a0 = sp$a0, P0 = sp$P0, dt = sp$dt, ct = sp$ct, Tt = sp$Tt,
+Zt = sp$Zt, HHt = sp$HHt, GGt = sp$GGt, yt = yt)
+return(-ans$logLik)
+}
+theta <- c(ar = c(0, 0), ma1 = 0, sigma = 1)
+fit <- optim(theta, objective, yt = rbind(a), hessian = TRUE)
+fit
+## Confidence intervals
+rbind(fit$par - qnorm(0.975) * sqrt(diag(solve(fit$hessian))),
+fit$par + qnorm(0.975) * sqrt(diag(solve(fit$hessian))))
+## Filter the series with estimated parameter values
+sp <- arma21ss(fit$par["ar1"], fit$par["ar2"], fit$par["ma1"], fit$par["sigma"])
+ans <- fkf(a0 = sp$a0, P0 = sp$P0, dt = sp$dt, ct = sp$ct, Tt = sp$Tt,
+Zt = sp$Zt, HHt = sp$HHt, GGt = sp$GGt, yt = rbind(a))
+## Compare the prediction with the realization
+plot(ans, at.idx = 1, att.idx = NA, CI = NA)
+lines(a, lty = "dotted")
+## Compare the filtered series with the realization
+plot(ans, at.idx = NA, att.idx = 1, CI = NA)
+lines(a, lty = "dotted")
+## Check whether the residuals are Gaussian
+plot(ans, type = "resid.qq")
+## Check for linear serial dependence through 'acf'
+plot(ans, type = "acf")
+```           
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+###Second Example
+
+```{r}
+library("FKF",lib.loc="~/R/win-library/3.2")
+## <--------------------------------------------------------------------------->
+## Example 2: Local level model for the Nile's annual flow.
+## <--------------------------------------------------------------------------->
+## Transition equation:
+## alpha[t+1] = alpha[t] + eta[t], eta[t] ~ N(0, HHt)
+## Measurement equation:
+## y[t] = alpha[t] + eps[t], eps[t] ~ N(0, GGt)
+y <- Nile
+y[c(3, 10)] <- NA # NA values can be handled
+## Set constant parameters:
+dt <- ct <- matrix(0)
+Zt <- Tt <- matrix(1)
+a0 <- y[1] # Estimation of the first year flow
+P0 <- matrix(100) # Variance of 'a0'
+## Estimate parameters:
+fit.fkf <- optim(c(HHt = var(y, na.rm = TRUE) * .5,
+GGt = var(y, na.rm = TRUE) * .5),
+fn = function(par, ...)
+-fkf(HHt = matrix(par[1]), GGt = matrix(par[2]), ...)$logLik,
+yt = rbind(y), a0 = a0, P0 = P0, dt = dt, ct = ct,
+Zt = Zt, Tt = Tt, check.input = FALSE)
+## Filter Nile data with estimated parameters:
+fkf.obj <- fkf(a0, P0, dt, ct, Tt, Zt, HHt = matrix(fit.fkf$par[1]),
+GGt = matrix(fit.fkf$par[2]), yt = rbind(y))
+## Compare with the stats' structural time series implementation:
+fit.stats <- StructTS(y, type = "level")
+fit.fkf$par
+fit.stats$coef
+## Plot the flow data together with fitted local levels:
+plot(y, main = "Nile flow")
+lines(fitted(fit.stats), col = "green")
+lines(ts(fkf.obj$att[1, ], start = start(y), frequency = frequency(y)), col = "blue")
+legend("top", c("Nile flow data", "Local level (StructTS)", "Local level (fkf)"),
+col = c("black", "green", "blue"), lty = 1)
+
+
+```
+
+
+###Third Example
+
+```{r}
+library("FKF",lib.loc="~/R/win-library/3.2")
+## Local level model for the treering width data.
+## Transition equation:
+## alpha[t+1] = alpha[t] + eta[t], eta[t] ~ N(0, HHt)
+## Measurement equation:
+## y[t] = alpha[t] + eps[t], eps[t] ~ N(0, GGt)
+y <- treering
+y[c(3, 10)] <- NA # NA values can be handled
+## Set constant parameters:
+dt <- ct <- matrix(0)
+Zt <- Tt <- matrix(1)
+a0 <- y[1] # Estimation of the first width
+P0 <- matrix(100) # Variance of 'a0'
+## Estimate parameters:
+fit.fkf <- optim(c(HHt = var(y, na.rm = TRUE) * .5,
+GGt = var(y, na.rm = TRUE) * .5),
+fn = function(par, ...)
+-fkf(HHt = matrix(par[1]), GGt = matrix(par[2]), ...)$logLik,
+yt = rbind(y), a0 = a0, P0 = P0, dt = dt, ct = ct,
+Zt = Zt, Tt = Tt, check.input = FALSE)
+## Filter Nile data with estimated parameters:
+fkf.obj <- fkf(a0, P0, dt, ct, Tt, Zt, HHt = matrix(fit.fkf$par[1]),
+GGt = matrix(fit.fkf$par[2]), yt = rbind(y))
+## Plot the width together with fitted local levels:
+plot(y, main = "Treering data")
+lines(ts(fkf.obj$att[1, ], start = start(y), frequency = frequency(y)), col = "blue")
+legend("top", c("Treering data", "Local level"), col = c("black", "blue"), lty = 1)
+## Check the residuals for normality:
+plot(fkf.obj, type = "resid.qq")
+## Test for autocorrelation:
+plot(fkf.obj, type = "acf", na.action = na.pass)
+```
+
+##Time Series
+<https://cran.r-project.org/web/packages/timeSeries/timeSeries.pdf>
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data Set -
+x <- MSFT
+## Aggregate by Weeks -
+by <- timeSequence(from = start(x), to = end(x), by = "week")
+aggregate(x, by, mean)
+## Aggregate to Last Friday of Month -
+by <- unique(timeLastNdayInMonth(time(x), 5))
+X <- aggregate(x, by, mean)
+X
+dayOfWeek(time(X))
+isMonthly(X)
+## Aggregate to Last Day of Quarter -
+by <- unique(timeLastDayInQuarter(time(x)))
+X <- aggregate(x, by, mean)
+X
+isQuarterly(X)
+## Aggregate daily records to end of month records -
+X <- daily2monthly(x)
+X
+isMonthly(X)
+## Aggregate da, ily records to end of week records -
+X <- daily2weekly(x, startOn="Fri")
+X
+dayOfWeek(time(X))
+plot(x)
+
+```
+
+
+###First Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Use MSFT and Compute Sample Size -
+dim(MSFT)
+## Align the Series -
+MSFT.AL <- align(MSFT)
+## Show the Size of the Aligned Series -
+dim(MSFT.AL)
+```
+
+###Second Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Percentual Returns of Swiss Bond Index and Performance Index -
+LPP <- 100 * LPP2005REC[, c("SBI", "SPI")]
+head(LPP, 20)
+## Aggregate Quarterly Returns -
+applySeries(LPP, by = "quarterly", FUN = colSums)
+## Aggregate Quarterly every last Friday in Quarter -
+oneDay <- 24*3600
+from <- unique(timeFirstDayInQuarter(time(LPP))) - oneDay
+from <- timeLastNdayInMonth(from, nday = 5)
+to <- unique(timeLastDayInQuarter(time(LPP)))
+to <- timeLastNdayInMonth(to, nday = 5)
+data.frame(from = as.character(from), to = as.character(to))
+applySeries(LPP, from, to, FUN = colSums)
+## Count Trading Days per Month -
+colCounts <- function(x) rep(NROW(x), times = NCOL(x))
+applySeries(LPP, FUN = colCounts, by = "monthly")
+## Alternative Use -
+fapply(LPP, from, to, FUN = colSums)
+```
+
+###Third Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Create an Artificial timeSeries Object -
+setRmetricsOptions(myFinCenter = "GMT")
+charvec <- timeCalendar()
+data <- matrix(rnorm(12))
+TS <- timeSeries(data, charvec, units = "RAND")
+TS
+## Coerce to Vector -
+as.vector(TS)
+## Coerce to Matrix -
+as.matrix(TS)
+## Coerce to Data Frame -
+as.data.frame(TS)
+```
+
+###Fourth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data Set -
+x <- MSFT[1:10, ]
+colnames(x)
+## Attach the Series and Compute the Range -
+attach(x)
+range <- High - Low
+range
+## Convert Vector to a timeSeries Object -
+timeSeries(data=range, charvec=time(x), units="Range")
+## Detach the series from the search path -
+
+ans <- try(High, silent=TRUE)
+cat(ans[1])
+detach("x")
+```
+
+###Fifth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Create an artificial timeSeries Object -
+tS <- dummySeries()
+tS
+## Get Optional Attributes -
+getAttributes(tS)
+tS@documentation
+## Set a new Optional Attribute -
+setAttributes(tS) <- list(what="A dummy Series")
+tS
+getAttributes(tS)
+tS@documentation
+plot(ts)
+```
+
+###Sixth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data Set -
+x <- MSFT[1:12, ]
+x
+## Bind Columnwise -
+X <- cbind(x[, "Open"], returns(x[, "Open"]))
+colnames(X) <- c("Open", "Return")
+X
+## Bind Rowwise -
+Y <- rbind(x[1:3, "Open"], x[10:12, "Open"])
+Y
+plot(x)
+plot(y)
+```
+
+###Seventh Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Simulated Return Data -
+x = matrix(rnorm(24), ncol = 2)
+## Cumulative Sums Column by Column -
+colCumsums(x)
+```
+
+###Eighth Example
+
+```{r}
+## Simulated Return Data in Matrix Form -
+x = matrix(rnorm(252), ncol = 2)
+## Mean Columnwise Statistics -
+colStats(x, FUN = mean)
+## Quantiles Column by Column -
+colQuantiles(x, prob = 0.10, type = 1)
+```
+
+###Nineth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Get Description from timeSeries -
+comment(LPP2005REC)
+## Add User to comment -
+comment(LPP2005REC) <- paste(comment(LPP2005REC), "by User Rmetrics")
+comment(LPP2005REC)
+```
+
+###Tenth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Use the Microsofts' Close Prices Indexed to 1 -
+MSFT.CL <- MSFT[, "Close"]
+MSFT.CL <- MSFT.CL/MSFT[[1, "Close"]]
+head(MSFT.CL)
+## Compute Discrete Return -
+MSFT.RET <- returns(MSFT.CL, method = "discrete")
+## Cumulated Series and Compare -
+MSFT.CUM <- cumulated(MSFT.RET, method = "discrete")
+head(cbind(MSFT.CL, MSFT.CUM))
+
+```
+
+###Eleventh Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data -
+X <- MSFT[1:10, 1:4]
+## Get Data Part -
+DATA <- getDataPart(X)
+class(DATA)
+```
+
+###Twelveth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data Set -
+x <- MSFT[1:12, ]
+x
+## Compute Differences -
+diff(x)
+## Trimmed Differences -
+diff(x, trim=TRUE)
+## Padded Differences -
+diff(x, trim=FALSE, pad=0)
+```
+
+###Thirteenth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Swiss Pension Fund Benchmark Data -
+X <- LPP2005REC[1:10, 1:3]
+## Get Dimension -
+dim(X)
+## Get Column and Row Names -
+dimnames(X)
+## Get Column / Row Names -
+colnames(X)
+rownames(X)
+## Try your own DIM -
+DIM <- function(x) {c(NROW(x), NCOL(x))}
+DIM(X)
+DIM(X[, 1])
+## Try length / LENGTH -
+length(X)
+length(X[, 1])
+LENGTH <- function(X) NROW(X)
+LENGTH(X)
+## Columns / Rows -
+ncol(X); NCOL(X)
+nrow(X); NROW(X)
+## See also -
+isUnivariate(X)
+isMultivariate(X)
+```
+###Fourteenth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Use Swiss Pension Fund Data Set of Returns -
+head(LPP2005REC)
+SPI <- LPP2005REC[, "SPI"]
+head(SPI)
+## Plot Drawdowns -
+dd = drawdowns(LPP2005REC[, "SPI"], main = "Drawdowns")
+plot(dd)
+dd = drawdowns(LPP2005REC[, 1:6], main = "Drawdowns")
+plot(dd)
+## Compute Drawdowns Statistics -
+ddStats <- drawdownsStats(SPI)
+class(ddStats)
+ddStats
+## Note, Only Univariate Series are allowd -
+ddStats <- try(drawdownsStats(LPP2005REC))
+class(ddStats)
+
+```
+###Fifteenth Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Compute Durations in days for the MSFT Sereries -
+head(durations(MSFT, units = "days"))
+head(durations(MSFT, trim = TRUE, units = "days"))
+## The same in hours -
+head(durations(MSFT, trim = TRUE, units = "hours"))
+
+```
+###Linear filtering Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Creata a Dummy Signal 'timeSeries' -
+data <- matrix(rnorm(100), ncol = 2)
+s <- timeSeries(data, units=c("A", "B"))
+head(s)
+## Filter the series -
+f <- filter(s, rep(1, 3))
+head(f)
+## Plot and Compare the first series -
+plot(cbind(s[, 1], f[, 1]), plot.type="s")
+```
+###Financial Center Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## An artificial timeSeries Object -
+tS <- dummySeries()
+tS
+## Print Financial Center -
+finCenter(tS)
+getFinCenter(tS)
+## Assign New Financial Center -
+finCenter(tS) <- "Zurich"
+tS
+setFinCenter(tS) <- "New_York"
+tS
+```
+###timeSeries Class, Coercion and Transformation Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Create an Artificial timeSeries Object -
+setRmetricsOptions(myFinCenter = "GMT")
+charvec <- timeCalendar()
+data <- matrix(rnorm(12))
+TS <- timeSeries(data, charvec, units = "RAND")
+TS
+## Test for timeSeries -
+is.timeSeries(TS)
+
+```
+###CChecks if a Time Series is Univariate Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data -
+setRmetricsOptions(myFinCenter = "GMT")
+data(MSFT)
+Open = MSFT[, "Open"]
+## Is the timeSeries Univariate -
+isUnivariate(MSFT)
+isUnivariate(Open)
+## Is the timeSeries Multivariate -
+isMultivariate(MSFT)
+isMultivariate(Open)
+```
+###Mathematical Time Series Operations Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Create an Artificial timeSeries Object -
+setRmetricsOptions(myFinCenter = "GMT")
+charvec = timeCalendar()
+set.seed(4711)
+data = matrix(exp(cumsum(rnorm(12, sd = 0.1))))
+TS = timeSeries(data, charvec, units = "TS")
+TS
+## Mathematical Operations: | +/- * ^ ... -
+TS^2
+TS[2:4]
+OR = returns(TS)
+OR
+OR > 0
+```
+###Lag a Time Series Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Micsrosoft Data Set -
+x = MSFT[1:20, "Open"]
+## Lag the timeSeries Object:
+lag(x, k = -1:1)
+
+```
+###Merges two ’timeSeries’ objects Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Series -
+x <- MSFT[1:12, ]
+## Merge 'timeSeries' with missing Object -
+merge(x)
+## Merge 'timeSeries' with numeric Object -
+y <- rnorm(12)
+class(y)
+merge(x, y)
+## Merge 'timeSeries' with matrix Object -
+y <- matrix(rnorm(24), ncol=2)
+class(y)
+merge(x, y)
+## Merge 'timeSeries' with matrix Object -
+y <- timeSeries(data=rnorm(12), charvec=time(x))
+class(y)
+merge(x, y)
+```
+###Model Frames for Time Series Objects  Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data -
+setRmetricsOptions(myFinCenter = "GMT")
+X <- MSFT[1:12, ]
+## Extract High's and Low's:
+DATA <- model.frame( ~ High + Low, data = X)
+class(DATA)
+as.timeSeries(DATA)
+## Extract Open Prices and their log10's:
+base <- 10
+Open <- model.frame(Open ~ log(Open, base = `base`), data = X)
+colnames(Open) <- c("X", "log10(X)")
+class(Open)
+as.timeSeries(Open)
+```
+###Plot a time-serie Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Swiss Pension Fund Benchmark Data -
+LPP <- LPP2005REC[1:12, 1:4]
+colnames(LPP) <- abbreviate(colnames(LPP), 2)
+finCenter(LPP) <- "GMT"
+## Example Plot 1 -
+plot(LPP[, 1], type = "o", col = "steelblue",
+main = "LPP", xlab = "2005", ylab = "Return")
+plot(LPP[, 1], at="auto", type = "o", col = "steelblue",
+main = "LPP", xlab = "2005", ylab = "Return")
+## Example Plot 2 -
+plot(LPP[, 1:2], type = "o", col = "steelblue",
+main = "LPP", xlab = "2005", ylab = "Return")
+## Example Plot 3 -
+plot(LPP[, 1], LPP[, 2], type = "p", col = "steelblue",
+main = "LPP", xlab = "Return 1", ylab = "Return 2")
+## Example Plot 4a, The Wrong Way to do it! -
+LPP <- as.timeSeries(data(LPP2005REC))
+ZRH <- as.timeSeries(LPP[,"SPI"], zone = "Zurich", FinCenter = "Zurich")
+NYC <- as.timeSeries(LPP[,"LMI"], zone = "NewYork", FinCenter = "NewYork")
+finCenter(ZRH)
+finCenter(NYC)
+plot(ZRH, at="auto", type = "p", pch = 19, col = "blue")
+points(NYC, pch = 19, col = "red")
+## Example Plot 4b, Convert NYC to Zurich Time -
+finCenter(ZRH) <- "Zurich"
+finCenter(NYC) <- "Zurich"
+at <- unique(round(time(ZRH)))
+plot(ZRH, type = "p", pch = 19, col = "blue", format = "%b %d", at = at,
+xlab = paste(ZRH@FinCenter, "local Time"), main = ZRH@FinCenter)
+points(NYC, pch = 19, col = "red")
+## Example 4c, Force Everything to GMT Using "FinCenter" Argument -
+finCenter(ZRH) <- "Zurich"
+finCenter(NYC) <- "NewYork"
+at <- unique(round(time(ZRH)))
+plot(ZRH, type = "p", pch = 19, col = "blue", format = "%b %d", at = at,
+FinCenter = "GMT", xlab = "GMT", main = "ZRH - GMT")
+points(NYC, FinCenter = "GMT", pch = 19, col = "red")
+
+```
+###Print a Time Series Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Micsrosoft Data -
+setRmetricsOptions(myFinCenter = "GMT")
+LPP <- MSFT[1:12, 1:4]
+## Abbreviate Column Names -
+colnames(LPP) <- abbreviate(colnames(LPP), 6)
+## Print Data Set -
+print(LPP)
+## Alternative Use, Show Data Set -
+show(LPP)
+
+```
+###Sample Ranks of a Time Series Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load Microsoft Data -
+X <- 100 * returns(MSFT)
+## Compute the Ranks -
+head(rank(X[, "Open"]), 10)
+## Only Interested in the Vector, then use -
+head(rank(series(X[, "Open"])), 10)
+
+```
+###Rolling Statistics Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Use Swiss Pension Fund Data Set of Returns -
+head(LPP2005REC)
+SPI <- LPP2005REC[, "SPI"]
+head(SPI)
+## Plot Drawdowns -
+rmean <- rollMean(SPI, k = 10)
+plot(rmean)
+```
+###Cumulated Column Statistics Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Simulated Monthly Return Data -
+X = matrix(rnorm(24), ncol = 2)
+## Compute cumulated Sums -
+rowCumsums(X)
+```
+###Get and Set Data of a ’timeSeries’ Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## A Dummy timeSeries Object
+ts <- timeSeries()
+ts
+## Get the Matrix Part -
+mat <- series(ts)
+class(mat)
+mat
+## Assign a New Univariate Series -
+series(ts) <- rnorm(12)
+ts
+## Assign a New Bivariate Series -
+series(ts) <- rnorm(12)
+ts
+plot(ts)
+```
+###extract window Example
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+## Load LPP Benchmark Returns -
+x <- LPP2005REC[, 7:9]
+range(time(x))
+## Extract Data for January 2006 -
+window(x, "2006-01-01", "2006-01-31")
+```
+###More plotting Example
+Taken from <https://cran.r-project.org/web/packages/timeSeries/vignettes/timeSeriesPlot.pdf>
+
+```{r}
+library("timeSeries", lib.loc="~/R/win-library/3.2")
+library(PerformanceAnalytics)
+require(timeSeries)
+require(xts)
+require(fTrading)
+tS1 <- 100 * cumulated(LPP2005REC[, 1]) # SBI (univariate)
+tS2 <- 100 * cumulated(LPP2005REC[, 1:2]) # SBI & SPI (bivariate)
+tS3 <- 100 * cumulated(LPP2005REC[, 1:3]) # SBI, SPI, SWIIT (Swiss Market)
+tS6 <- 100 * cumulated(LPP2005REC[, 1:6]) # Swiss and Foreign Market Indexes
+
+par(mfrow=c(1, 1))
+plot(tS1)
+
+par(mfrow=c(3, 1))
+xts::plot.xts(as.xts(tS1))
+PerformanceAnalytics::chart.TimeSeries(as.xts(tS1))
+plot(tS1)
+
+par(mfrow=c(1, 1))
+plot(tS3, plot.type="s")
+
+par(mfrow=c(2, 1))
+require(PerformanceAnalytics)
+PerformanceAnalytics::chart.TimeSeries(as.xts(tS3))
+plot(tS3, plot.type="s")
+
+par(mfrow=c(1, 1))
+plot(tS3, plot.type="m")
+
+par(mfrow=c(1, 1))
+plot(tS6, plot.type="m")
+
+par(mfrow=c(1, 1))
+plot(tS3, plot.type="m", mar=c(gap=0.3, 5.1, gap=0.3, 2.1))
+
+par(mfrow=c(2, 1))
+par(mar = c(bottom=1.5, 5.1, top=4, 2.1))
+plot(tS2[, 1])
+par(mar = c(bottom=4, 5.1, top=1.5, 2.1))
+plot(tS2[, 2])
+
+nf <- layout(mat=matrix(c(1, 1, 2, 3), byrow = TRUE, nrow=2))
+par(mar = c(bottom=2, 5.1, top=3, 2.1))
+plot(tS3[, 1])
+par(mar = c(bottom=3, 5.1, top=2, 1.1))
+plot(tS3[, 2])
+par(mar = c(bottom=3, 4.1, top=2, 2.1))
+plot(tS3[, 3])
+
+nf <- layout(mat=matrix(c(1, 1, 2, 3), byrow=TRUE, nrow=2), heights=c(2.5,1))
+par(mar = c(bottom=2, 5.1, top=3, 2.1))
+plot(tS3[, 1])
+par(mar = c(bottom=3, 5.1, top=1.5, 1.1))
+plot(tS3[, 2])
+par(mar = c(bottom=3, 4.1, top=1.5, 2.1))
+plot(tS3[, 3])
+
+par(mfrow=c(1, 1))
+lines2 <- function(X, Y, type, xlab, ylab, col, pch, lty, lwd, cex) {lines(x=X, y=Y, col=col)+ abline(h=0, col = "brown", lwd=2)}
+plot(returns(tS3), plot.type="m", col = .colorwheelPalette(3), panel=lines2, at="pretty")
+
+
+par(mfrow=c(1, 1))
+lines2 <- function(X, Y, type, xlab, ylab, col, pch, lty, lwd, cex) {lines(x=X, y=Y, type="h", col=col)+ rug(Y, side=4, col="steelblue") }
+plot(returns(tS6), plot.type="m", col = .colorwheelPalette(6), panel=lines2, at="pretty")
+
+library("fTrading")
+par(mfrow=c(1, 1))
+lines2 <- function(X, Y, type, xlab, ylab, col, pch, lty, lwd, cex) { lines(x=X, y=Y, type="l", col=col) +lines(x=X, y=emaTA(Y), col="black") }
+plot(tS3, plot.type="m", col = .colorwheelPalette(3), panel=lines2, grid=TRUE, at="pretty")
+```
+
+##Markov chain
+Taken from markov chain <https://cran.rstudio.com/web/packages/markovchain/markovchain.pdf>
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+#create some markov chains
+statesNames=c("a","b")
+mcA<-new("markovchain", transitionMatrix=matrix(c(0.7,0.3,0.1,0.9),byrow=TRUE,
+nrow=2, dimnames=list(statesNames,statesNames)))
+plot(mcA)
+statesNames=c("a","b","c")
+mcB<-new("markovchain", states=statesNames, transitionMatrix=
+matrix(c(0.2,0.5,0.3,
+0,1,0,
+0.1,0.8,0.1),nrow=3, byrow=TRUE, dimnames=list(statesNames,
+statesNames)
+))
+statesNames=c("a","b","c","d")
+matrice<-matrix(c(0.25,0.75,0,0,0.4,0.6,0,0,0,0,0.1,0.9,0,0,0.7,0.3),
+nrow=4, byrow=TRUE)
+mcC<-new("markovchain", states=statesNames, transitionMatrix=matrice)
+plot(mcC)
+mcD<-new("markovchain", transitionMatrix=matrix(c(0,1,0,1), nrow=2,byrow=TRUE))
+plot(mcD)
+#operations with S4 methods
+mcA^2
+steadyStates(mcB)
+plot(mcB)
+absorbingStates(mcB)
+plot(mcB)
+markovchainSequence(n=20, markovchain=mcC, include=TRUE)
+
+```
+###Various function to perform structural analysis of DTMC Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3,
+0, 1, 0,
+0.1, 0.8, 0.1), nrow = 3, byrow = TRUE,
+dimnames = list(statesNames, statesNames)
+))
+communicatingClasses(markovB)
+recurrentClasses(markovB)
+absorbingStates(markovB)
+transientStates(markovB)
+canonicForm(markovB)
+# periodicity analysis : 1
+E <- matrix(c(0, 1, 0, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0, 0.5, 0, 0, 1, 0),
+nrow = 4, ncol = 4, byrow = TRUE)
+mcE <- new("markovchain", states = c("a", "b", "c", "d"),
+transitionMatrix = E,
+name = "E")
+is.irreducible(mcE) #true
+period(mcE) #2
+# periodicity analysis : 2
+myMatr <- matrix(c(0, 0, 1/2, 1/4, 1/4, 0, 0,
+0, 0, 1/3, 0, 2/3, 0, 0,
+0, 0, 0, 0, 0, 1/3, 2/3,
+0, 0, 0, 0, 0, 1/2, 1/2,
+0, 0, 0, 0, 0, 3/4, 1/4,
+1/2, 1/2, 0, 0, 0, 0, 0,
+1/4, 3/4, 0, 0, 0, 0, 0), byrow = TRUE, ncol = 7)
+myMc <- new("markovchain", transitionMatrix = myMatr)
+period(myMc)
+```
+###Mobility between income quartiles Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(blanden)
+mobilityMc<-as(blanden, "markovchain")
+plot(mobilityMc)
+```
+###conditionalDistribution of a Markov Chain Example
+It extracts the conditional distribution of the subsequent state, given current state.
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+# define a markov chain
+statesNames <- c("a", "b", "c")
+markovB <- new("markovchain", states = statesNames, transitionMatrix =
+matrix(c(0.2, 0.5, 0.3, 0, 1, 0, 0.1, 0.8, 0.1),nrow = 3,
+byrow = TRUE, dimnames = list(statesNames, statesNames)))
+plot(markovB)
+conditionalDistribution(markovB, "b")
+
+```
+
+###CD4 cells counts on HIV Infects between zero and six month Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data(craigsendi)
+csMc<-as(craigsendi, "markovchain")
+steadyStates(csMc)
+```
+
+###Function to fit a discrete Markov chain Example
+Given a sequence of states arising from a stationary state, it fits the underlying Markov chain distribution using either MLE (also using a Laplacian smoother), bootstrap or by MAP (Bayesian) inference.
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+sequence <- c("a", "b", "a", "a", "a", "a", "b", "a", "b", "a", "b", "a", "a",
+"b", "b", "b", "a")
+sequenceMatr <- createSequenceMatrix(sequence, sanitize = FALSE)
+mcFitMLE <- markovchainFit(data = sequence)
+mcFitBSP <- markovchainFit(data = sequence, method = "bootstrap", nboot = 5, name = "Bootstrap Mc")
+mcFitBSP
+mcFitMLE
+```
+
+###Class "ctmc" Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+energyStates <- c("sigma", "sigma_star")
+byRow <- TRUE
+gen <- matrix(data = c(-3, 3,
+1, -1), nrow = 2,
+byrow = byRow, dimnames = list(energyStates, energyStates))
+molecularCTMC <- new("ctmc", states = energyStates,
+byrow = byRow, generator = gen,
+name = "Molecular Transition Model")
+steadyStates(molecularCTMC)
+
+```
+
+###Function to fit a CTMC Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+data <- list(c("a", "b", "c", "a", "b", "a", "c", "b", "c"), c(0, 0.8, 2.1, 2.4, 4, 5, 5.9, 8.2, 9))
+ctmcFit(data)
+```
+
+###First passage across states Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+simpleMc <- new("markovchain", states = c("a", "b"),
+transitionMatrix = matrix(c(0.4, 0.6, .3, .7),
+nrow = 2, byrow = TRUE))
+firstPassage(simpleMc, "b", 20)
+plot(firstPassage(simpleMc, "b", 20))
+```
+
+###Functions to fit a higher order Markov chain Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+library("Rsolnp", lib.loc="~/R/win-library/3.2")
+sequence<-c("a", "a", "b", "b", "a", "c", "b", "a", "b", "c", "a", "b", "c", "a"
+, "b", "c", "a", "b", "a", "b")
+fitHigherOrder(sequence)
+```
+
+###Twelveth Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+
+```
+
+###Twelveth Example
+
+```{r}
+library("markovchain", lib.loc="~/R/win-library/3.2")
+
+```
+
