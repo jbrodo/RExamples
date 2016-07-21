@@ -9,6 +9,8 @@ output: html_document
 ##Kalman
 For more details on Kalman Filter see <https://cran.r-project.org/web/packages/FKF/FKF.pdf>.
 
+Theory and explanation are done in this work <https://www.jstatsoft.org/article/view/v039i02/v39i02.pdf>
+
 ###First Example
 
 ```{r}
@@ -1230,9 +1232,68 @@ assessStationarity(sequence, 1)
 divergenceTest(sequence, mcFit$estimate@transitionMatrix)
 ```
 
-###Sales Demand Sequences Example
+###read from csv Example
 
 ```{r}
-library("markovchain", lib.loc="~/R/win-library/3.2")
+library("csvread", lib.loc="~/R/win-library/3.2")
+cic = csvread("C:\\Users\\ricca\\Documents\\R\\intermmidiate-ud.csv", coltypes = c("string","double","double","integer","integer","integer","long","string","integer","string"),header = TRUE)
+summary(cic)
+```
 
+###read from csv read csv Example
+
+```{r}
+library("csvread", lib.loc="~/R/win-library/3.2")
+cic = read.csv("C:\\Users\\ricca\\Documents\\R\\intermmidiate-ud.csv",header = TRUE, nrows = 10000)
+summary(cic)
+plot(cic$sys,cic$modification)
+```
+
+###ddply example group
+```{r}
+library("plyr", lib.loc="~/R/win-library/3.2")
+.(a, b, c)
+.(first = a, second = b, third = c)
+.(a ^ 2, b - d, log(c))
+as.quoted(~ a + b + c)
+as.quoted(a ~ b + c)
+as.quoted(c("a", "b", "c"))
+# Some examples using ddply - look at the column names
+ddply(mtcars, "cyl", each(nrow, ncol))
+ddply(mtcars, ~ cyl, each(nrow, ncol))
+ddply(mtcars, .(cyl), each(nrow, ncol))
+ddply(mtcars, .(log(cyl)), each(nrow, ncol))
+ddply(mtcars, .(logcyl = log(cyl)), each(nrow, ncol))
+ddply(mtcars, .(vs + am), each(nrow, ncol))
+ddply(mtcars, .(vsam = vs + am), each(nrow, ncol))
+
+```
+
+###ggplot example group
+<http://stackoverflow.com/questions/16961921/plot-data-in-descending-order-as-appears-in-data-frame>
+```{r}
+set.seed(42)
+df <- data.frame(Category = sample(LETTERS), Count = rpois(26, 6))
+require("ggplot2")
+p1 <- ggplot(df, aes(x = Category, y = Count)) +
+         geom_bar(stat = "identity")
+p2 <- ggplot(df, aes(x = reorder(Category, -Count), y = Count)) +
+         geom_bar(stat = "identity")
+require("gridExtra")
+grid.arrange(arrangeGrob(p1, p2))
+```
+
+###ggplot example group
+```{r}
+library("csvread", lib.loc="~/R/win-library/3.2")
+cic = read.csv("C:\\Users\\ricca\\Documents\\R\\intermmidiate-ud.csv",header = TRUE, nrows = 10000)
+summary(cic)
+
+require("ggplot2")
+p1 <- ggplot(cic, aes(x = system, y = modification)) +
+         geom_bar(stat = "identity") + theme(axis.text.x=element_text(angle = 90, hjust = 0.5))
+p2 <- ggplot(cic, aes(x = reorder(system, Commit), y = modification)) +
+         geom_bar(stat = "identity") + theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+require("gridExtra")
+grid.arrange(arrangeGrob(p1, p2))
 ```
