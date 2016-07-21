@@ -1297,3 +1297,46 @@ p2 <- ggplot(cic, aes(x = reorder(system, Commit), y = modification)) +
 require("gridExtra")
 grid.arrange(arrangeGrob(p1, p2))
 ```
+
+###decision tree 
+```{r}
+library("party", lib.loc="~/R/win-library/3.2")
+library("rpart", lib.loc="~/R/win-library/3.2")
+str(iris)
+iris_ctree <- ctree(Species ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width, data=iris)
+print(iris_ctree)
+#plot(iris_ctree)
+plot(iris_ctree, type="simple")
+fit <- rpart(Species ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width, data=iris)
+par(mfrow = c(1,2), xpd = NA)
+#print(fit)
+plot(fit)
+text(fit, use.n = TRUE)
+#plot(fit, type="simple")
+```
+
+###decision tree 
+```{r}
+library("party", lib.loc="~/R/win-library/3.2")
+library("plyr", lib.loc="~/R/win-library/3.2")
+library("rpart", lib.loc="~/R/win-library/3.2")
+library("csvread", lib.loc="~/R/win-library/3.2")
+cic = read.csv("C:\\Users\\ricca\\Desktop\\Nuova cartella\\workspace knime\\jss-mtd-2016-fisher-knime-indipendent-variable\\output\\dataseYN.csv",header = TRUE, nrows = 20000)
+str(cic)
+ddply(cic, .(as,ColumnNames), .fun = function(x){
+ #ddply(x,.(ColumnNames))
+  #, .fun = function(y){
+  #  ctree(ColumnValues~Status+Number.of.Versions+Domain+Number.of.Class..src...bin.+Non.comment.non.blank.LOC..src#...bin.+JREVersionNOsub +Licensesubsub+ReleaseYear)
+#  })
+})
+#iris_ctree <- ctree(Species ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width, data=iris)
+print(iris_ctree)
+#plot(iris_ctree)
+plot(iris_ctree, type="simple")
+fit <- rpart(as ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width, data=iris)
+par(mfrow = c(1,2), xpd = NA)
+#print(fit)
+plot(fit)
+text(fit, use.n = TRUE)
+#plot(fit, type="simple")
+```
